@@ -27,6 +27,7 @@ import 'package:every_door/screens/editor/types.dart';
 import 'package:every_door/screens/editor/versions.dart';
 import 'package:every_door/widgets/duplicate.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -429,6 +430,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
       },
       child: Scaffold(
         appBar: AppBar(
+          systemOverlayStyle: SystemUiOverlayStyle.light,
           title: GestureDetector(
             child: Stack(children: [
               // Text(preset?.name ?? amenity.name ?? 'Editor'),

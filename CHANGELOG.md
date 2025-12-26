@@ -1,5 +1,16 @@
 # Every Door App Change Log
 
+## 8.0
+
+_Unreleased_
+
+* [Programmable plugins](https://every-door.app/plugins/code/)!
+* Added line wrapping for the type chooser.
+* When an address/floor filter is active, newly created amenities use its values.
+* Additional fields are partly sorted for easier lookup (thanks @deevroman).
+* Support for `manyCombo` field type (e.g. gender for toilets).
+* Shorter tiles in the plugin list.
+
 ## 7.1
 
 _Released on 2025-10-24_
