@@ -61,14 +61,21 @@ class _ManyComboFieldState extends State<ManyComboField> {
 
   @override
   Widget build(BuildContext context) {
-    final options = widget.field.options.take(3).map((o) => o.value).toList();
-    final labels = widget.field.options
-        .take(3)
-        .map((o) => o.label?.toLowerCase() ?? o.value)
-        .toList();
+    // The tag keys ARE the option identities: selecting an option sets its
+    // key to "yes". Labels are matched to keys positionally (the i-th label
+    // in `options` labels the i-th key); missing labels fall back to the key.
+    final keys = widget.field.keys;
+    final fieldOptions = widget.field.options;
+    final labels = <String>[
+      for (int i = 0; i < keys.length; i++)
+        i < fieldOptions.length
+            ? (fieldOptions[i].label?.toLowerCase() ?? fieldOptions[i].value)
+            : keys[i]
+    ];
+
 
     return RadioField(
-      options: options,
+      options: keys,
       labels: labels,
       values: getComboValues(),
       multi: true,

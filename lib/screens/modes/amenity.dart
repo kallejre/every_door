@@ -1,3 +1,4 @@
+import 'package:every_door/constants.dart';
 import 'package:every_door/helpers/multi_icon.dart';
 import 'package:every_door/providers/editor_settings.dart';
 import 'package:every_door/screens/editor/map_chooser.dart';
