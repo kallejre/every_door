@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:country_coder/country_coder.dart';
 import 'package:every_door/fields/address.dart';
+import 'package:every_door/fields/bundle_combo.dart';
 import 'package:every_door/fields/checkbox.dart';
 import 'package:every_door/fields/combo.dart';
 import 'package:every_door/fields/direction.dart';
@@ -297,12 +298,40 @@ PresetField fieldFromJson(Map<String, dynamic> data,
         options: options,
       );
     case 'manyCombo':
-      return ManyComboPresetField(
-        keys: key.split('\\'),
+      // Adds potential support for keys separated into list 
+      // instead of single //-delimited string
+      final manyKeys = data['keys'] is List
+          ? (data['keys'] as List).map((e) => e.toString()).toList()
+          : (data['key'] is List
+              ? (data['key'] as List).map((e) => e.toString()).toList()
+              : key.split('\\'));
+      return ManyComboPresetField(keys: manyKeys, 
         label: label,
         prerequisite: prerequisite,
         locationSet: locationSet,
         options: options,
+      );
+    case 'bundleCombo':
+      final raw = (data['options'] as List?) ?? const [];
+      String coerce(v) => v == true ? 'yes' : (v == false ? 'no' : v.toString());
+      return BundleComboPresetField(
+        label: label,
+        prerequisite: prerequisite,
+        locationSet: locationSet,
+        primaryKey: data['key'] is String ? data['key'] as String : null,
+        bundles: [
+          for (final o in raw)
+            if (o is Map)
+              BundleOption(
+                value: (o['value'] ?? '').toString(),
+                label: o['label']?.toString(),
+                tags: (o['tags'] as Map?)?.map(
+                        (k, v) => MapEntry(k.toString(), coerce(v))) ??
+                    const {},
+              )
+            else
+              BundleOption(value: o.toString()),
+        ],
       );
     case 'radio':
       return RadioPresetField(
@@ -436,6 +465,42 @@ PresetField fieldFromPlugin(Map<String, dynamic> data,
         snakeCase: (data['snakeCase'] as bool?) ?? false,
         type: kComboMapping[typ]!,
         options: options,
+      );
+    case 'manyCombo':
+      // Adds potential support for keys separated into list 
+      // instead of single //-delimited string
+      final manyKeys = data['keys'] is List
+          ? (data['keys'] as List).map((e) => e.toString()).toList()
+          : (data['key'] is List
+              ? (data['key'] as List).map((e) => e.toString()).toList()
+              : key.split('\\'));
+      return ManyComboPresetField(keys: manyKeys, 
+        label: label,
+        prerequisite: prerequisite,
+        locationSet: locationSet,
+        options: options,
+      );
+    case 'bundleCombo':
+      final raw = (data['options'] as List?) ?? const [];
+      String coerce(v) => v == true ? 'yes' : (v == false ? 'no' : v.toString());
+      return BundleComboPresetField(
+        label: label,
+        prerequisite: prerequisite,
+        locationSet: locationSet,
+        primaryKey: data['key'] is String ? data['key'] as String : null,
+        bundles: [
+          for (final o in raw)
+            if (o is Map)
+              BundleOption(
+                value: (o['value'] ?? '').toString(),
+                label: o['label']?.toString(),
+                tags: (o['tags'] as Map?)?.map(
+                        (k, v) => MapEntry(k.toString(), coerce(v))) ??
+                    const {},
+              )
+            else
+              BundleOption(value: o.toString()),
+        ],
       );
     case 'radio':
       return RadioPresetField(
