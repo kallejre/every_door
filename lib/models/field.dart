@@ -489,17 +489,15 @@ PresetField fieldFromPlugin(Map<String, dynamic> data,
         locationSet: locationSet,
         primaryKey: data['key'] is String ? data['key'] as String : null,
         bundles: [
-          for (final o in raw)
-            if (o is Map)
-              BundleOption(
-                value: (o['value'] ?? '').toString(),
-                label: o['label']?.toString(),
-                tags: (o['tags'] as Map?)?.map(
-                        (k, v) => MapEntry(k.toString(), coerce(v))) ??
-                    const {},
-              )
-            else
-              BundleOption(value: o.toString()),
+          for (int i = 0; i < options.length; i++)
+            BundleOption(
+              value: options[i].value,
+              label: options[i].label,          // null when it's an icon
+              widget: options[i].widget,        // the loaded icon chip, if any
+              tags: (i < raw.length && raw[i] is Map)
+                  ? ((raw[i]['tags'] as Map?)?.map((k, v) => MapEntry(k.toString(), coerce(v))) ?? const {})
+                  : const {},
+            ),
         ],
       );
     case 'radio':

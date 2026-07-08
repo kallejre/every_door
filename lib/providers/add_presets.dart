@@ -333,13 +333,15 @@ class FieldTemplate {
       final kReExtension = RegExp(r'\.[a-z]+$');
       final labels = (data['labels'] as List?)?.whereType<String>().toList();
       for (int i = 0; i < dataOptions.length; i++) {
-        final label = labels == null || labels.length <= i ? null : labels[i];
-        final icon = label != null && kReExtension.hasMatch(label)
-            ? plugin.loadIcon(label)
-            : null;
+        final opt = dataOptions[i];
+        final value = opt is Map ? (opt['value'] ?? '').toString() : opt.toString();
+        final rawLabel = opt is Map ? opt['label']?.toString()
+                                    : (labels != null && labels.length > i ? labels[i] : null);
+        final icon = rawLabel != null && kReExtension.hasMatch(rawLabel)
+            ? plugin.loadIcon(rawLabel) : null;
         options.add(ComboOption(
-          dataOptions[i].toString(),
-          label: icon == null ? (label ?? dataOptions[i].toString()) : null,
+          value,
+          label: icon == null ? (rawLabel ?? value) : null,
           widget: icon?.getWidget(size: 40.0, icon: false),
         ));
       }

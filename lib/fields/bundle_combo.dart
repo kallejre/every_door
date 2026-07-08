@@ -35,9 +35,10 @@ import 'package:flutter/material.dart';
 class BundleOption {
   final String value; // identity, and written to [primaryKey] if set
   final String? label; // display text
+  final Widget? widget; // display icon
   final Map<String, String> tags; // tags applied when this option is selected
 
-  const BundleOption({required this.value, this.label, this.tags = const {}});
+  const BundleOption({required this.value, this.label, this.widget, this.tags = const {}});
 }
 
 class BundleComboPresetField extends PresetField {
@@ -119,13 +120,18 @@ class _BundleComboFieldState extends State<BundleComboField> {
 
   @override
   Widget build(BuildContext context) {
-    final options = [for (final b in widget.field.bundles) b.value];
-    final labels = [
-      for (final b in widget.field.bundles) b.label ?? b.value
-    ];
+    final bundles = widget.field.bundles;
+    final options = [for (final b in bundles) b.value];
+    final hasWidgets = bundles.any((b) => b.widget != null);
     return RadioField(
       options: options,
-      labels: labels,
+      labels: [for (final b in bundles) b.label ?? b.value],
+      // hasWidget is true when any option has icon
+      widgetLabels: hasWidgets
+          // However if any option doesn't have icon nor label,
+          // then falls back to raw tag value
+          ? [for (final b in bundles) b.widget ?? Text(b.label ?? b.value)]
+          : null,
       values: _selectedValues(),
       multi: true,
       onMultiChange: _onChange,
