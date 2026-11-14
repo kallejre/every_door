@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert' show json;
 
 import 'package:every_door/helpers/counter.dart';
 import 'package:every_door/helpers/geometry/equirectangular.dart';
@@ -18,6 +19,7 @@ import 'package:every_door/providers/changes.dart';
 import 'package:every_door/providers/database.dart';
 import 'package:every_door/providers/osm_api.dart';
 import 'package:every_door/providers/road_names.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:every_door/constants.dart';
@@ -598,6 +600,42 @@ class OsmDataHelper extends ChangeNotifier {
     return counter;
   }
 
+  /// Like [getComboOptionsCount], but for many keys at once, in a single
+  /// pass over the downloaded data instead of a full table scan per key.
+  /// Returns a value counter for each key that has any values.
+  ///
+  /// The table is read in pages, so queries from the UI do not have to wait
+  /// long behind it, and tags are decoded in a background isolate.
+  Future<Map<String, Map<String, int>>> getComboOptionsCounts(
+      Set<String> keys) async {
+    const kPageSize = 5000;
+    final database = await _ref.read(databaseProvider).database;
+    final result = <String, Map<String, int>>{};
+    int lastRowId = 0;
+    while (true) {
+      final rows = await database.query(
+        OsmElement.kTableName,
+        columns: ['rowid', 'tags'],
+        where: 'rowid > ?',
+        whereArgs: [lastRowId],
+        orderBy: 'rowid',
+        limit: kPageSize,
+      );
+      if (rows.isEmpty) break;
+      lastRowId = rows.last['rowid'] as int;
+
+      final tagsList = rows.map((r) => r['tags']).whereType<String>().toList();
+      final pageCounts = await compute(countComboValues, (tagsList, keys));
+      pageCounts.forEach((key, counter) {
+        final total = result.putIfAbsent(key, () => <String, int>{});
+        counter.forEach((v, c) => total[v] = (total[v] ?? 0) + c);
+      });
+
+      if (rows.length < kPageSize) break;
+    }
+    return result;
+  }
+
   Future<int> _downloadMap(LatLngBounds bounds) async {
     final api = _ref.read(osmApiProvider);
     final roadNames = <RoadNameRecord>{};
@@ -669,4 +707,33 @@ class OsmDataHelper extends ChangeNotifier {
     );
     await _updateLength();
   }
+}
+
+/// Counts tag values for the given keys in a list of JSON-encoded tag maps.
+/// Same rules as [OsmDataHelper.getComboOptionsCount]: for keys ending
+/// with ":" (like "payment:"), counts key suffixes instead of values.
+/// Top-level so it can run in an isolate with [compute].
+Map<String, Map<String, int>> countComboValues(
+    (List<String>, Set<String>) job) {
+  final (tagsList, keys) = job;
+  final result = <String, Map<String, int>>{};
+  void add(String key, String value) {
+    final counter = result.putIfAbsent(key, () => <String, int>{});
+    counter[value] = (counter[value] ?? 0) + 1;
+  }
+
+  for (final tagsJson in tagsList) {
+    final tags = json.decode(tagsJson);
+    if (tags is! Map) continue;
+    tags.forEach((k, v) {
+      final key = k.toString();
+      if (!key.endsWith(':') && keys.contains(key)) add(key, v.toString());
+      // Check every "prefix:" of the key, e.g. "payment:" for "payment:visa".
+      for (int i = key.indexOf(':'); i >= 0; i = key.indexOf(':', i + 1)) {
+        final prefix = key.substring(0, i + 1);
+        if (keys.contains(prefix)) add(prefix, key.substring(i + 1));
+      }
+    });
+  }
+  return result;
 }

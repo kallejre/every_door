@@ -104,6 +104,25 @@ class PresetProvider {
     return "langs (lang, lscore) as (values ${values.join(',')})";
   }
 
+  /// SQL condition "[column] starts with [prefix]" and its arguments.
+  ///
+  /// A plain `like 'ab%'` can't use the term indexes: they have NOCASE
+  /// collation and the columns don't, so SQLite scans the whole table.
+  /// A NOCASE range ('ab' <= term < 'ac') can seek in the index, and the
+  /// `like` stays as a filter so results are exactly the same as before.
+  (String, List<String>) _prefixCondition(String column, String prefix) {
+    if (prefix.isEmpty || prefix.contains('%') || prefix.contains('_')) {
+      return ('$column like ?', ['$prefix%']); // wildcards: keep LIKE semantics
+    }
+    final upper = List.of(prefix.codeUnits);
+    upper.last += 1;
+    return (
+      '($column collate nocase >= ? and $column collate nocase < ?'
+          ' and $column like ?)',
+      [prefix, String.fromCharCodes(upper), '$prefix%'],
+    );
+  }
+
   Future<List<Preset>> getNSIAutocomplete(String query,
       {LatLng? location,
       ElementKindImpl? filter,
@@ -114,11 +133,13 @@ class PresetProvider {
         .getAutocomplete(terms: [normalizeString(query)], nsi: true);
 
     // Considering database loaded at this point.
-    const sql = '''
+    final (termCondition, termArgs) =
+        _prefixCondition('term', normalizeString(query));
+    final sql = '''
     with matches as (
       select nsi_id, min(length(term)) as term_len
       from nsi_terms
-      where term like ?
+      where $termCondition
       group by nsi_id
     )
     select nsi.* from nsi
@@ -127,7 +148,7 @@ class PresetProvider {
     ''';
 
     // Query the database.
-    final results = await _db!.rawQuery(sql, [normalizeString(query) + '%']);
+    final results = await _db!.rawQuery(sql, termArgs);
     Iterable<Preset> nsiResults =
         fromPlugins.followedBy(results.map((e) => Preset.fromNSIJson(e)));
 
@@ -183,7 +204,13 @@ class PresetProvider {
     if (!ready) await _waitUntilReady();
     final langCTE = _localeCTE(locale);
     final isAreaClause = isArea ? 'where can_area = 1' : '';
-    final termsClause = terms.map((_) => 'term like ?').join(' or ');
+    final termConditions =
+        terms.map((t) => _prefixCondition('term', t)).toList();
+    final termsClause = termConditions.map((c) => c.$1).join(' or ');
+    // "cross join" in SQLite is an inner join that keeps the written order:
+    // start from the few found presets, then look up their translations by
+    // index. Otherwise SQLite starts from langs and builds a temporary index
+    // over all of preset_tran on every query.
     final sql = '''
     with $langCTE
     , found as (
@@ -194,14 +221,15 @@ class PresetProvider {
       group by preset_name
     )
     select p.*, t.name as loc_name, lscore, terms
-    from presets p
-    inner join found on found.preset_name = p.name
-    left join preset_tran t on t.preset_name = p.name
-    inner join langs on langs.lang = t.lang
+    from found
+    cross join presets p on found.preset_name = p.name
+    cross join preset_tran t on t.preset_name = p.name
+    cross join langs on langs.lang = t.lang
     $isAreaClause
     order by score desc, lscore;
     ''';
-    final results = await _db!.rawQuery(sql, terms.map((t) => '$t%').toList());
+    final results = await _db!
+        .rawQuery(sql, termConditions.expand((c) => c.$2).toList());
 
     final presets = fromPlugins; // no need to copy
     final seenPresets = presets.map((p) => p.id).toList();
@@ -387,11 +415,13 @@ class PresetProvider {
 
   Future<void> _updateComboCache(String key, Iterable<String> options) async {
     final database = await _ref.read(databaseProvider).database;
-    await database.insert(
-      kCachedCombosTableName,
-      {'key': key, 'options': options.join('\\')},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    // The table has no unique key, so "insert or replace" would just add
+    // another row. Delete the old one explicitly.
+    final batch = database.batch();
+    batch.delete(kCachedCombosTableName, where: 'key = ?', whereArgs: [key]);
+    batch.insert(
+        kCachedCombosTableName, {'key': key, 'options': options.join('\\')});
+    await batch.commit(noResult: true);
   }
 
   Future<List<String>?> _fetchComboCache(String key) async {
@@ -446,11 +476,41 @@ class PresetProvider {
     fields.sort((a, b) => (kMostUsedFields.contains(a['name']) ? 0 : 1)
         .compareTo(kMostUsedFields.contains(b['name']) ? 0 : 1));
 
-    // For each field, refresh the cache.
-    for (final field in fields) {
-      await _getComboOptions(field, useCache: false);
+    try {
+      // Count values on the map for all keys in one pass over the data.
+      // Previously it was one full table scan per field (~400 of them).
+      final keys = fields.map((f) => f['key']).whereType<String>().toSet();
+      final counters =
+          await _ref.read(osmDataProvider).getComboOptionsCounts(keys);
+
+      // Taginfo options for all keys (a small table).
+      final taginfo = {
+        for (final row in await _db!.query('combos'))
+          row['key'] as String: row['options'] as String?
+      };
+
+      // Build option lists. A later field with the same key wins,
+      // like it did when the cache was updated field by field.
+      final options = <String, List<String>>{};
+      for (final field in fields) {
+        final key = field['key'];
+        if (key is! String) continue;
+        options[key] = _sortComboOptions(
+            field, taginfo[key], counters[key] ?? const {});
+      }
+
+      // Replace the whole cache in one transaction.
+      final database = await _ref.read(databaseProvider).database;
+      final batch = database.batch();
+      batch.delete(kCachedCombosTableName);
+      options.forEach((key, values) {
+        batch.insert(kCachedCombosTableName,
+            {'key': key, 'options': values.join('\\')});
+      });
+      await batch.commit(noResult: true);
+    } finally {
+      processingCombos = false;
     }
-    processingCombos = false;
 
     final timeTook =
         ((DateTime.now().millisecondsSinceEpoch - timeStart) / 1000).round();
@@ -476,35 +536,20 @@ class PresetProvider {
         return cached.map((e) => ComboOption(e, label: loc[e])).toList();
     }
 
-    // First add the options from the preset.
-    final List<String> options = [];
-    if (field['options'] != null) {
-      options.addAll((jsonDecode(field['options']) as List).cast<String>());
-    }
-
-    if (!presetOnly) {
+    List<String> options;
+    if (presetOnly) {
+      options = _sortComboOptions(field, null, const {});
+    } else {
       // Get options from taginfo.
-      // Store them separately to prioritize preset options.
-      final tiOptions = <String>[];
       final results = await _db!
           .query('combos', where: 'key = ?', whereArgs: [field['key']]);
-      if (results.isNotEmpty) {
-        final existing = Set.of(options);
-        tiOptions.addAll((results.first['options'] as String)
-            .split('\\')
-            .where((v) => !existing.contains(v)));
-      }
 
       // Count values on the map.
       final counter =
           await _ref.read(osmDataProvider).getComboOptionsCount(field['key']);
-      if (counter.isNotEmpty) {
-        mergeSort(options,
-            compare: (a, b) => (counter[b] ?? 0).compareTo(counter[a] ?? 0));
-        mergeSort(tiOptions,
-            compare: (a, b) => (counter[b] ?? 0).compareTo(counter[a] ?? 0));
-      }
-      options.addAll(tiOptions);
+
+      options = _sortComboOptions(field,
+          results.isEmpty ? null : results.first['options'] as String?, counter);
 
       // Store the result in the cache.
       _updateComboCache(field['key'], options);
@@ -512,6 +557,33 @@ class PresetProvider {
 
     // Return the result wrapped in a ComboOption.
     return options.map((e) => ComboOption(e, label: loc[e])).toList();
+  }
+
+  /// Builds the option list for a combo field: options from the preset first,
+  /// then from taginfo ([taginfoOptions], separated by backslashes). Each
+  /// group is sorted by how often the value appears on the map ([counter]).
+  List<String> _sortComboOptions(Map<String, dynamic> field,
+      String? taginfoOptions, Map<String, int> counter) {
+    final List<String> options = [];
+    if (field['options'] != null) {
+      options.addAll((jsonDecode(field['options']) as List).cast<String>());
+    }
+
+    // Store them separately to prioritize preset options.
+    final tiOptions = <String>[];
+    if (taginfoOptions != null) {
+      final existing = Set.of(options);
+      tiOptions.addAll(
+          taginfoOptions.split('\\').where((v) => !existing.contains(v)));
+    }
+
+    if (counter.isNotEmpty) {
+      mergeSort(options,
+          compare: (a, b) => (counter[b] ?? 0).compareTo(counter[a] ?? 0));
+      mergeSort(tiOptions,
+          compare: (a, b) => (counter[b] ?? 0).compareTo(counter[a] ?? 0));
+    }
+    return options..addAll(tiOptions);
   }
 
   static const kSkipFields = {'opening_hours/covid19', 'not/name', 'shop'};

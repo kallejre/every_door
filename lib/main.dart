@@ -15,14 +15,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:every_door/generated/l10n/app_localizations.dart' show AppLocalizations;
 import 'package:flutter_dropdown_alert/dropdown_alert.dart';
 import 'package:logging/logging.dart';
+import 'package:sqflite/sqflite.dart';
 
 void main() {
   Logger.root.level = kDebugMode ? Level.INFO : Level.WARNING;
   Logger.root.onRecord.listen((event) {
     logStore.addFromLogger(event);
   });
-  runZonedGuarded(() {
+  runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await setupSqfliteThreads();
     installCertificate();
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
@@ -33,6 +35,22 @@ void main() {
   }, (error, stack) {
     logStore.addFromZone(error, stack);
   });
+}
+
+/// By default sqflite on Android runs every query of every database on one
+/// thread, so a slow query in every_door.db (e.g. counting tag values after
+/// a download) makes all presets.db lookups wait. With two threads, different
+/// databases run in parallel; queries on the same database keep their order.
+/// Must run before any database is opened: changing it later restarts the
+/// worker pool and drops queued queries.
+Future<void> setupSqfliteThreads() async {
+  if (!Platform.isAndroid) return;
+  try {
+    // ignore: deprecated_member_use
+    await Sqflite.devSetOptions(SqfliteOptions()..androidThreadCount = 2);
+  } catch (e) {
+    Logger('main').warning('Could not set sqflite thread count: $e');
+  }
 }
 
 Future<void> installCertificate() async {
