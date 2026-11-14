@@ -1,6 +1,7 @@
 import 'package:every_door/constants.dart';
 import 'package:every_door/helpers/geometry/equirectangular.dart';
 import 'package:every_door/helpers/multi_icon.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/models/amenity.dart';
 import 'package:every_door/models/plugin.dart';
@@ -60,8 +61,10 @@ abstract class AmenityModeDefinition extends BaseModeDefinition {
 
   @override
   updateNearest({int? forceRadius}) async {
+    final timer = PerfTimer('AmenityMode.updateNearest');
     List<OsmChange> data =
         await super.getNearestChanges(forceRadius: forceRadius);
+    timer.lap('getNearestChanges: ${data.length}');
 
     // Keep other mode objects to show.
     final otherData = data
@@ -93,9 +96,11 @@ abstract class AmenityModeDefinition extends BaseModeDefinition {
     nearestPOI = data;
     otherPOI = otherData;
     notifyListeners();
+    timer.lap('filter + sort + notify: ${data.length} shown');
   }
 
   void openEditor(BuildContext context, LatLng location) async {
+    if (kPerfLogging) perfLogger.info('AmenityMode › openEditor at $location');
     Navigator.push(
       context,
       MaterialPageRoute(

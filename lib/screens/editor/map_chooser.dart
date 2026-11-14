@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:every_door/constants.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/providers/cur_imagery.dart';
 import 'package:every_door/providers/overlays.dart';
@@ -67,6 +68,7 @@ class _MapChooserPageState extends ConsumerState<MapChooserPage> {
   }
 
   Future<void> updateNearest() async {
+    final timer = PerfTimer('MapChooser.updateNearest');
     final provider = ref.read(osmDataProvider);
     final filter = ref.read(poiFilterProvider);
     final editorMode = ref.read(editorModeProvider);
@@ -74,6 +76,7 @@ class _MapChooserPageState extends ConsumerState<MapChooserPage> {
     // Query for amenities around the location.
     List<OsmChange> data =
         await provider.getElements(location, kVisibilityRadius);
+    timer.lap('getElements: ${data.length}');
     // Filter for amenities (or not amenities).
     data = data.where((e) {
       if (editorMode.isOurKind(e)) return true;
@@ -89,11 +92,14 @@ class _MapChooserPageState extends ConsumerState<MapChooserPage> {
     final notes = await ref
         .read(notesProvider)
         .fetchAllNotes(center: location, radius: kNotesVisibilityRadius);
+    timer.lap('filter + fetchAllNotes: ${notes.length}');
     // Update the map.
+    if (!mounted) return;
     setState(() {
       nearestPOI = data;
       nearestNotes = notes;
     });
+    timer.lapOnNextFrame('rendered ${data.length} POI');
   }
 
   @override

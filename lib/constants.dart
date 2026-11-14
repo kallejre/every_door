@@ -68,3 +68,4 @@ const kEdprEndpoint = 'plugins.every-door.app';
 
 const kEraseDatabase = false; // Clear all data on start — do not forget to set to false!
 const kOverwritePresets = false; // Set to false when done testing
+const kPerfLogging = true; // Timing logs (tag "Perf") for adding/presets, see helpers/perf_log.dart

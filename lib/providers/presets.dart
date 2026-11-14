@@ -8,6 +8,7 @@ import 'package:every_door/fields/text.dart';
 import 'package:every_door/fields/wifi.dart';
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/helpers/normalizer.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/models/field.dart';
 import 'package:every_door/helpers/nsi_features.dart';
 import 'package:every_door/providers/add_presets.dart';
@@ -55,6 +56,7 @@ class PresetProvider {
   }
 
   Future<void> initDatabase() async {
+    final timer = PerfTimer('Presets.initDatabase');
     final appDir = await getApplicationDocumentsDirectory();
     final dbFile = io.File(path.join(appDir.path, 'presets.db'));
     final prefs = await SharedPreferences.getInstance();
@@ -77,15 +79,19 @@ class PresetProvider {
       await dbFile.writeAsBytes(bytes, flush: true);
       prefs.setString(kDbVersion, kAppVersion);
       await clearComboCache();
+      timer.lap('copied presets.db from assets, combo cache CLEARED');
     }
 
     _db = await openDatabase(dbFile.path);
     ready = true;
+    timer.lap('ready (needCopy: $needCopy)');
   }
 
   Future _waitUntilReady() async {
+    final timer = PerfTimer('Presets', 'waiting for presets.db...');
     await Future.doWhile(
         () => Future.delayed(Duration(milliseconds: 100)).then((_) => !ready));
+    timer.lap('presets.db ready after waiting');
   }
 
   String _toSqlString(String s) => "'" + s.replaceAll("'", "''") + "'";
@@ -148,7 +154,9 @@ class PresetProvider {
     ''';
 
     // Query the database.
+    final timer = PerfTimer('Presets.getNSIAutocomplete');
     final results = await _db!.rawQuery(sql, termArgs);
+    timer.lap('SQL: ${results.length} rows');
     Iterable<Preset> nsiResults =
         fromPlugins.followedBy(results.map((e) => Preset.fromNSIJson(e)));
 
@@ -165,7 +173,9 @@ class PresetProvider {
       nsiResults = nsiResults.where((p) => filter.matchesTags(p.addTags));
     }
 
-    return nsiResults.take(limit).toList();
+    final nsiList = nsiResults.take(limit).toList();
+    timer.lap('parse + location/type filter: ${nsiList.length}');
+    return nsiList;
   }
 
   Future<List<Preset>> fillNSIPresetNames(List<Preset> suggested,
@@ -228,8 +238,10 @@ class PresetProvider {
     $isAreaClause
     order by score desc, lscore;
     ''';
+    final timer = PerfTimer('Presets.getPresetsAutocomplete');
     final results = await _db!
         .rawQuery(sql, termConditions.expand((c) => c.$2).toList());
+    timer.lap('SQL: ${results.length} rows');
 
     final presets = fromPlugins; // no need to copy
     final seenPresets = presets.map((p) => p.id).toList();
@@ -274,10 +286,12 @@ class PresetProvider {
     select key, value, max(usage) as usage, group_concat(term) as terms
     from taglist where ($termsClause) group by 1, 2
     ''';
+    final timer = PerfTimer('Presets.getTagNamePresets');
     final results = [
       // We're creating a mutable list from a read-only one.
       ...await _db!.rawQuery(sql, terms.map((t) => '$t%').toList())
     ];
+    timer.lap('SQL: ${results.length} rows');
 
     // Sort by usage, descending.
     results.sort((a, b) => (b['usage'] as int).compareTo(a['usage'] as int));
@@ -312,9 +326,11 @@ class PresetProvider {
     }
 
     // Check the plugin presets.
+    final timer = PerfTimer('Presets.getPresetForTags');
     final fromPlugins = _ref
         .read(pluginPresetsProvider)
         .getPresetForTags(tags, isArea: isArea, locale: locale);
+    timer.slow('plugin presets lookup');
     if (fromPlugins != null) return fromPlugins;
 
     if (!ready) await _waitUntilReady();
@@ -351,6 +367,7 @@ class PresetProvider {
     order by lscore limit 1
     ''';
     final results = await _db!.rawQuery(sql);
+    timer.slow('SQL for ${tags.length} tags');
     Preset preset =
         results.isEmpty ? Preset.defaultPreset : Preset.fromJson(results.first);
 
@@ -363,6 +380,7 @@ class PresetProvider {
       order by usage desc limit 1
       ''';
       final results2 = await _db!.rawQuery(tagSql);
+      timer.slow('generic preset -> taglist SQL');
       if (results2.isNotEmpty) {
         preset = Preset.poi(results2.first);
       }
@@ -437,6 +455,7 @@ class PresetProvider {
   Future<void> cacheComboOptions() async {
     if (processingCombos) return;
     _logger.fine('Starting global combo values caching');
+    if (kPerfLogging) perfLogger.info('Presets › background combo caching started');
     final timeStart = DateTime.now().millisecondsSinceEpoch;
     processingCombos = true;
     // Most used fields to be processed first.
@@ -475,6 +494,7 @@ class PresetProvider {
     final fields = List.of(fieldsReadOnly);
     fields.sort((a, b) => (kMostUsedFields.contains(a['name']) ? 0 : 1)
         .compareTo(kMostUsedFields.contains(b['name']) ? 0 : 1));
+    final timer = PerfTimer('Presets.cacheComboOptions');
 
     try {
       // Count values on the map for all keys in one pass over the data.
@@ -482,12 +502,14 @@ class PresetProvider {
       final keys = fields.map((f) => f['key']).whereType<String>().toSet();
       final counters =
           await _ref.read(osmDataProvider).getComboOptionsCounts(keys);
+      timer.lap('counted values for ${keys.length} keys');
 
       // Taginfo options for all keys (a small table).
       final taginfo = {
         for (final row in await _db!.query('combos'))
           row['key'] as String: row['options'] as String?
       };
+      timer.lap('loaded taginfo options');
 
       // Build option lists. A later field with the same key wins,
       // like it did when the cache was updated field by field.
@@ -508,6 +530,7 @@ class PresetProvider {
             {'key': key, 'options': values.join('\\')});
       });
       await batch.commit(noResult: true);
+      timer.lap('saved ${options.length} keys to the cache');
     } finally {
       processingCombos = false;
     }
@@ -515,6 +538,10 @@ class PresetProvider {
     final timeTook =
         ((DateTime.now().millisecondsSinceEpoch - timeStart) / 1000).round();
     _logger.fine('Finished processing combo options, took $timeTook seconds');
+    if (kPerfLogging) {
+      perfLogger.info('Presets › background combo caching finished,'
+          ' ${fields.length} fields in ${timeTook}s');
+    }
   }
 
   Future<List<ComboOption>> _getComboOptions(Map<String, dynamic> field,
@@ -530,10 +557,16 @@ class PresetProvider {
         : <String, String>{};
 
     // Check in the combo cache.
+    final timer = PerfTimer('Presets.comboOptions[${field['key']}]');
     if (!presetOnly && useCache) {
       final cached = await _fetchComboCache(field['key']);
+      timer.slow('combo cache lookup');
       if (cached != null)
         return cached.map((e) => ComboOption(e, label: loc[e])).toList();
+      if (kPerfLogging) {
+        perfLogger.info('Presets › combo cache MISS for ${field['key']}'
+            ' (${field['typ']}), scanning downloaded data');
+      }
     }
 
     List<String> options;
@@ -543,10 +576,12 @@ class PresetProvider {
       // Get options from taginfo.
       final results = await _db!
           .query('combos', where: 'key = ?', whereArgs: [field['key']]);
+      timer.slow('taginfo combos query');
 
       // Count values on the map.
       final counter =
           await _ref.read(osmDataProvider).getComboOptionsCount(field['key']);
+      timer.slow('getComboOptionsCount (full scan of downloaded data)');
 
       options = _sortComboOptions(field,
           results.isEmpty ? null : results.first['options'] as String?, counter);
@@ -613,9 +648,12 @@ class PresetProvider {
     }
 
     if (!ready) await _waitUntilReady();
+    final timer = PerfTimer('Presets.getFields',
+        'start ${preset.id} (background combo caching: $processingCombos)');
     if (plugins) {
       final fromPlugin =
           await _ref.read(pluginPresetsProvider).loadFields(preset, locale);
+      timer.lap('plugin loadFields: ${fromPlugin.fields.length} fields');
       if (fromPlugin.fields.isNotEmpty) return fromPlugin;
     }
 
@@ -642,10 +680,12 @@ class PresetProvider {
     order by pos, lscore
     ''';
     final results = await _db!.rawQuery(sql, [preset.id]);
+    timer.lap('fields SQL: ${results.length} rows');
     if (results.isEmpty) return preset;
     List<PresetField> fields = [];
     List<PresetField> moreFields = [];
     final seenFields = <String>{};
+    int cachedCount = 0, builtCount = 0;
     for (final row in results) {
       final name = row['name'] as String;
       if (seenFields.contains(name)) continue;
@@ -656,10 +696,14 @@ class PresetProvider {
       PresetField field;
       if (_fieldCache.containsKey(name)) {
         field = _fieldCache[name]!;
+        cachedCount++;
       } else {
         final options = await _getComboOptions(row);
+        timer.slow('combo options for $name (${row['typ']}): ${options.length}');
         field = fieldFromJson(row, options: options);
+        timer.slow('fieldFromJson $name (${row['typ']})');
         _fieldCache[name] = field;
+        builtCount++;
       }
 
       // Skip fields that don't fit the location.
@@ -676,6 +720,7 @@ class PresetProvider {
         moreFields.add(field);
       }
     }
+    timer.lap('built fields: $builtCount new, $cachedCount from cache');
     return preset.withFields(fields, moreFields);
   }
 

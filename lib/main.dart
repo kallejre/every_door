@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/helpers/log_store.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/providers/app_links_provider.dart';
 import 'package:every_door/providers/language.dart';
 import 'package:flutter/foundation.dart';
@@ -19,6 +20,7 @@ import 'package:sqflite/sqflite.dart';
 
 void main() {
   Logger.root.level = kDebugMode ? Level.INFO : Level.WARNING;
+  setupPerfLogging();
   Logger.root.onRecord.listen((event) {
     logStore.addFromLogger(event);
   });

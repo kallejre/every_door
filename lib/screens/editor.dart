@@ -6,6 +6,7 @@ import 'package:every_door/fields/payment.dart';
 import 'package:every_door/fields/text.dart';
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/helpers/tags/main_key.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/models/note.dart';
 import 'package:every_door/providers/cur_imagery.dart';
 import 'package:every_door/providers/notes.dart';
@@ -59,10 +60,13 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
   List<PresetField> fields = []; // actual fields
   List<PresetField> moreFields = [];
   List<PresetField> stdFields = [];
+  late final PerfTimer _openTimer;
 
   @override
   void initState() {
     super.initState();
+    _openTimer = PerfTimer('Editor',
+        'opened (${widget.amenity != null ? 'existing ${widget.amenity!.id}' : 'new, preset ${widget.preset?.id}'})');
     if (widget.amenity != null) {
       amenity = widget.amenity!.copy();
     } else {
@@ -74,6 +78,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
     amenity.addListener(onAmenityChange);
 
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      _openTimer.lap('first frame (no fields yet)');
       final locale = Localizations.localeOf(context);
       preset = widget.preset;
       updatePreset(locale, preset?.type);
@@ -101,6 +106,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
 
   Future<void> updatePreset(Locale locale, [PresetType? presetType]) async {
     await Future.delayed(Duration.zero); // to disconnect from initState
+    final timer = PerfTimer('Editor.updatePreset', 'start (${preset?.id})');
     final presets = ref.read(presetProvider);
     bool detect = presetType == PresetType.nsi || preset == null;
     bool needRefresh = false;
@@ -110,6 +116,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
         isArea: amenity.isArea,
         locale: locale,
       );
+      timer.lap('getPresetForTags -> ${newPreset.id}');
       if (preset == null || preset?.id != newPreset.id) {
         preset = newPreset;
         needRefresh = true;
@@ -120,10 +127,12 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
     if (preset!.fields.isEmpty) {
       preset = await presets.getFields(preset!,
           locale: locale, location: amenity.location);
+      timer.lap('getFields: ${preset!.fields.length} + ${preset!.moreFields.length} more');
       if (!preset!.noStandard && needsAddress(amenity.getFullTags())) {
         final bool needsStdFields =
             preset!.fields.length <= 1 || needsStandardFields();
         stdFields = await presets.getStandardFields(locale, needsStdFields);
+        timer.lap('getStandardFields: ${stdFields.length}');
         // Remove the field for level if the object is a building.
         if (amenity['building'] != null) {
           stdFields.removeWhere((e) => e.key == 'level');
@@ -169,6 +178,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
             !preset!.moreFields.any((field) => field.key == 'opening_hours')) {
           final hoursField = await presets.getField('opening_hours', locale);
           preset!.moreFields.insert(0, hoursField);
+          timer.lap('getField(opening_hours)');
         }
       } else {
         stdFields = [];
@@ -179,6 +189,9 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
       setState(() {
         extractFields();
       });
+      timer.lap('extractFields');
+      timer.lapOnNextFrame('rendered fields');
+      _openTimer.lapOnNextFrame('editor ready');
     }
   }
 
@@ -278,7 +291,7 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
       }
       // Save changes and close.
       final changes = ref.read(changesProvider);
-      changes.saveChange(amenity);
+      perfTime('Editor.saveChange', () => changes.saveChange(amenity));
       if (amenity.hasTag('addr:floor'))
         ref.read(osmDataProvider).updateFloorNumbering(amenity.location);
     }

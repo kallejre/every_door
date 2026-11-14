@@ -1,5 +1,6 @@
 import 'package:every_door/constants.dart';
 import 'package:every_door/helpers/counter.dart';
+import 'package:every_door/helpers/perf_log.dart';
 import 'package:every_door/helpers/tags/element_kind.dart';
 import 'package:every_door/helpers/geometry/equirectangular.dart';
 import 'package:every_door/models/amenity.dart';
@@ -37,11 +38,15 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
   DateTime resultsUpdated = DateTime.now();
   final controller = TextEditingController();
   int updateMutex = 0;
+  late final PerfTimer _openTimer;
+  bool _initialListLogged = false;
 
   @override
   initState() {
     super.initState();
+    _openTimer = PerfTimer('TypeChooser', 'opened (location: ${widget.location}, defaults: ${widget.defaults.length})');
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+      _openTimer.lap('first frame (empty list)');
       updatePresets('');
     });
   }
@@ -49,9 +54,11 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
   Future<List<Preset>> _getPresetsAround(LatLng location,
       [int count = 3]) async {
     final locale = Localizations.localeOf(context);
+    final timer = PerfTimer('TypeChooser.around');
     List<OsmChange> data = await ref
         .read(osmDataProvider)
         .getElements(location, kVisibilityRadius);
+    timer.lap('getElements: ${data.length} elements');
     if (widget.kinds != null) {
       data = data.where((e) => widget.kinds?.matchesChange(e) ?? true).toList();
     }
@@ -70,9 +77,11 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
     // Get presets for all elements.
     final presetProv = ref.read(presetProvider);
     final presetsCount = Counter<Preset>();
+    timer.lap('filter+sort: ${data.length} elements left');
     for (final element in data) {
       final preset = await presetProv.getPresetForTags(element.getFullTags(),
           locale: locale);
+      timer.lap('getPresetForTags ${element.id} -> ${preset.id}');
       if (preset != Preset.defaultPreset && preset.type != PresetType.fixme)
         presetsCount.add(preset);
     }
@@ -89,20 +98,24 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
   Future<void> updatePresets(String substring) async {
     final mutex = DateTime.now().millisecondsSinceEpoch;
     updateMutex = mutex;
+    final timer = PerfTimer('TypeChooser.update', 'query "$substring"');
 
     final prov = ref.read(presetProvider);
     final locale = Localizations.localeOf(context);
     if (substring.length < 2 && !reCJK.hasMatch(substring)) {
       final newPresets =
           await prov.getPresetsById(widget.defaults, locale: locale);
+      timer.lap('getPresetsById(${widget.defaults.length})');
 
       // Add last presets.
       final presetsToAdd = <Preset>[];
       presetsToAdd.addAll(ref.read(lastPresetsProvider).getPresets());
+      timer.lap('lastPresets: ${presetsToAdd.length}');
       // Add presets from around.
       final presetsAround = <Preset>[];
       if (widget.location != null) {
         final presetsAroundTmp = await _getPresetsAround(widget.location!);
+        timer.lap('presetsAround: ${presetsAroundTmp.length}');
         for (final p in presetsAroundTmp)
           if (!presetsToAdd.contains(p)) presetsAround.add(p);
       }
@@ -125,6 +138,13 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
           resultsUpdated = DateTime.now();
           presets = presetsToAdd + newPresets;
         });
+        timer.lapOnNextFrame('rendered ${presets.length} presets');
+        if (!_initialListLogged) {
+          _initialListLogged = true;
+          _openTimer.lapOnNextFrame('initial list shown');
+        }
+      } else {
+        timer.lap('discarded (newer query started)');
       }
     } else {
       final nsiPresets = await prov.getNSIAutocomplete(
@@ -132,15 +152,18 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
         location: widget.location,
         filter: widget.kinds,
       );
+      timer.lap('NSI autocomplete: ${nsiPresets.length}');
       final dbPresets = await prov.getPresetsAutocomplete(
         substring,
         locale: locale,
         location: widget.location,
       );
+      timer.lap('presets autocomplete: ${dbPresets.length}');
       final genPresets = await prov.getTagNamePresets(
         substring,
         filter: widget.kinds,
       );
+      timer.lap('taglist presets: ${genPresets.length}');
 
       final newPresets = nsiPresets
           .take(kMaxNSIPresets)
@@ -159,6 +182,9 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
           if (newPresets.any((p) => p.type == PresetType.nsi))
             updateNSISubtitles(context);
         });
+        timer.lapOnNextFrame('rendered ${presets.length} presets');
+      } else {
+        timer.lap('discarded (newer query started)');
       }
     }
   }
@@ -167,7 +193,8 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
     final upd = resultsUpdated;
     final prov = ref.read(presetProvider);
     final locale = Localizations.localeOf(context);
-    final updated = await prov.fillNSIPresetNames(presets, locale: locale);
+    final updated = await perfTime('TypeChooser.fillNSIPresetNames',
+        () => prov.fillNSIPresetNames(presets, locale: locale));
     if (mounted && resultsUpdated == upd) {
       setState(() {
         presets = updated;
@@ -220,6 +247,10 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
             GestureDetector(
               child: ClipRect(child: PresetTile(preset)),
               onTap: () {
+                if (kPerfLogging) {
+                  perfLogger.info('TypeChooser › tapped preset ${preset.id}'
+                      ' (${preset.type.name}) after ${_openTimer.elapsedMs}ms on screen');
+                }
                 if (widget.launchEditor) {
                   Navigator.pushReplacement(
                     context,
