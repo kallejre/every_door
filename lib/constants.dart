@@ -34,6 +34,7 @@ const kDrawingMaxLength = 5000; // meters, for hand-drawings
 const kZoomInToFitWhenTracking = false; // Zoom in to fit nearby POIs on location updates while tracking
 const kZoomOutToFitWhenTracking = false; // Zoom out to fit nearby POIs on location updates while tracking
 const kZoomToEditWhenTracking = true; // Zoom in to kEditMinZoom when tracking starts in navigation mode
+const kPoiListScrollsVertically = true; // POI list scrolls down, tiles packed into columns (upstream: scrolls sideways)
 const kTallerPoiListNearUser = false; // POI list 400 px tall instead of 300 when the map is near you (upstream: true)
 // editor
 const kDuplicateSearchRadius = 150; // meters
