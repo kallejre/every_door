@@ -97,6 +97,11 @@ class _CustomMapState extends ConsumerState<CustomMap> {
   int _rotation = 0;
   StreamSubscription<MapEvent>? mapSub;
 
+  /// True while the user drags or pinches the map. Switching between
+  /// navigation and editing mode replaces this map with another one,
+  /// which would cancel the gesture, so the switch waits until it ends.
+  bool _gestureActive = false;
+
   @override
   void initState() {
     super.initState();
@@ -127,23 +132,18 @@ class _CustomMapState extends ConsumerState<CustomMap> {
     bool fromController = event.source == MapEventSource.mapController ||
         event.source == MapEventSource.nonRotatedSizeChange;
 
-    if (event is MapEventWithMove) {
+    if (event is MapEventMoveStart) {
+      if (!fromController) _gestureActive = true;
+    } else if (event is MapEventWithMove) {
       if (!fromController) {
         ref.read(trackingProvider.notifier).state = false;
+      }
+      // Size changes come during layout and never change the zoom.
+      if (event.source != MapEventSource.nonRotatedSizeChange) {
         ref.read(zoomProvider.notifier).state = event.camera.zoom;
-        if (widget.switchToNavigate) {
-          final bool isNavigating = ref.read(navigationModeProvider);
-          if (isNavigating) {
-            if (event.camera.zoom > kEditMinZoom) {
-              // Switch navigation mode off
-              ref.read(navigationModeProvider.notifier).state = false;
-            }
-          } else if (event.camera.zoom < kEditMinZoom) {
-            // Switch navigation mode on
-            ref.read(navigationModeProvider.notifier).state = true;
-            ref.read(rotationProvider.notifier).state = 0;
-          }
-        }
+        // Zoom buttons, double-tap zoom and other moves without a drag or
+        // pinch switch at once (zoom buttons move the map via the controller).
+        if (!_gestureActive) _updateNavigationMode(event.camera.zoom);
       }
       if (event.camera.center != _center) {
         setState(() {
@@ -157,7 +157,9 @@ class _CustomMapState extends ConsumerState<CustomMap> {
       }
     } else if (event is MapEventMoveEnd) {
       if (!fromController) {
+        _gestureActive = false;
         ref.read(effectiveLocationProvider.notifier).set(event.camera.center);
+        _updateNavigationMode(event.camera.zoom);
       }
     } else if (event is MapEventRotateEnd) {
       if (event.source != MapEventSource.mapController) {
@@ -171,6 +173,19 @@ class _CustomMapState extends ConsumerState<CustomMap> {
           ref.read(rotationProvider.notifier).state = rotation;
         }
       }
+    }
+  }
+
+  /// Below [kEditMinZoom] the editor pane is replaced with the navigation
+  /// pane, and back when zooming in.
+  void _updateNavigationMode(double zoom) {
+    if (!widget.switchToNavigate) return;
+    final bool isNavigating = ref.read(navigationModeProvider);
+    if (isNavigating && zoom > kEditMinZoom) {
+      ref.read(navigationModeProvider.notifier).state = false;
+    } else if (!isNavigating && zoom < kEditMinZoom) {
+      ref.read(navigationModeProvider.notifier).state = true;
+      ref.read(rotationProvider.notifier).state = 0;
     }
   }
 
@@ -276,7 +291,6 @@ class _CustomMapState extends ConsumerState<CustomMap> {
 
     final imagery = ref
         .watch(widget.onlyOSM ? baseImageryProvider : selectedImageryProvider);
-    final isNavigating = ref.watch(navigationModeProvider);
     final leftHand = ref.watch(editorSettingsProvider).leftHand;
     final loc = AppLocalizations.of(context)!;
 
@@ -287,8 +301,10 @@ class _CustomMapState extends ConsumerState<CustomMap> {
         initialCenter: ref.watch(effectiveLocationProvider),
         initialRotation: ref.watch(rotationProvider),
         initialZoom: ref.watch(zoomProvider),
-        minZoom: isNavigating ? kNavigateMinZoom : kEditMinZoom - 0.1,
-        maxZoom: isNavigating ? kEditMinZoom + 0.1 : kEditMaxZoom,
+        // The full range in both modes, so one pinch can cross between
+        // editing and navigation; the mode switches when the gesture ends.
+        minZoom: kNavigateMinZoom,
+        maxZoom: kEditMaxZoom,
         interactionOptions: InteractionOptions(
           flags: !widget.interactive
               ? InteractiveFlag.none
