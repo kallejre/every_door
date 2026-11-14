@@ -165,7 +165,6 @@ class _AmenityPageState extends ConsumerState<AmenityPane> {
               flex: 10,
               child: CustomMap(
                 controller: _controller,
-                drawZoomButtons: farFromUser,
                 updateState: true,
                 layers: [
                   ...widget.def.mapLayers(),
