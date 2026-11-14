@@ -132,9 +132,14 @@ class Preset {
             imageUrl:
                 'https://raw.githubusercontent.com/rapideditor/temaki/refs/heads/main/icons/$icon.svg');
       } else if (typ == 'roentgen') {
+        // iD moved the Röntgen icons into the @enzet/roentgen npm package
+        // (openstreetmap/iD#11784, January 2026), so svg/roentgen is gone
+        // from develop. Load them from the last commit that still had it.
+        // File names use underscores ("roentgen-telescope-radio" is
+        // telescope_radio.svg).
         return MultiIcon(
             imageUrl:
-                'https://raw.githubusercontent.com/openstreetmap/iD/refs/heads/develop/svg/roentgen/$icon.svg');
+                'https://raw.githubusercontent.com/openstreetmap/iD/4ee05db8db6f4d7f7ffe435ad60af34d856598e0/svg/roentgen/${icon.replaceAll('-', '_')}.svg');
       } else if (typ == 'fas') {
         return MultiIcon(
             imageUrl:
