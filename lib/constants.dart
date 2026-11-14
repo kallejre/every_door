@@ -34,6 +34,7 @@ const kDrawingMaxLength = 5000; // meters, for hand-drawings
 const kZoomInToFitWhenTracking = false; // Zoom in to fit nearby POIs on location updates while tracking
 const kZoomOutToFitWhenTracking = false; // Zoom out to fit nearby POIs on location updates while tracking
 const kZoomToEditWhenTracking = true; // Zoom in to kEditMinZoom when tracking starts in navigation mode
+const kTallerPoiListNearUser = false; // POI list 400 px tall instead of 300 when the map is near you (upstream: true)
 // editor
 const kDuplicateSearchRadius = 150; // meters
 const kOldAmenityDaysEditor = 3; // check_date expiration rate for the editor

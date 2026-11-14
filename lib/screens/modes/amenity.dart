@@ -123,10 +123,12 @@ class _AmenityPageState extends ConsumerState<AmenityPane> {
     final isWide =
         screenSize.width > screenSize.height && screenSize.height < 600;
 
+    // Near you the POI list is usually taller; that makes the map jump in size.
+    final smallList = farFromUser || !kTallerPoiListNearUser;
     final Widget bottomPane;
     if (apiStatus != ApiStatus.idle) {
       bottomPane = Expanded(
-        flex: farFromUser ? 10 : 23,
+        flex: smallList ? 10 : 23,
         child: buildApiStatusPane(context, apiStatus),
       );
     } else {
@@ -145,12 +147,12 @@ class _AmenityPageState extends ConsumerState<AmenityPane> {
       final mediaHeight = MediaQuery.of(context).size.height;
       if (isWide || mediaHeight <= 600)
         bottomPane = Expanded(
-          flex: farFromUser ? 10 : 23,
+          flex: smallList ? 10 : 23,
           child: bottomPaneChild,
         );
       else
         bottomPane = SizedBox(
-          height: farFromUser && mediaHeight < 900 ? 300 : 400,
+          height: smallList && mediaHeight < 900 ? 300 : 400,
           child: bottomPaneChild,
         );
     }
