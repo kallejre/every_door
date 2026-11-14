@@ -1,11 +1,13 @@
 import 'package:every_door/helpers/multi_icon.dart';
+import 'package:every_door/providers/geolocation.dart';
 import 'package:every_door/widgets/map.dart';
 import 'package:every_door/widgets/round_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:logging/logging.dart';
 
-class MapDragCreateButton extends StatelessWidget {
+class MapDragCreateButton extends ConsumerStatefulWidget {
   final MultiIcon icon;
   final Function()? onDragStart;
   final Function(LatLng)? onDragEnd;
@@ -27,37 +29,44 @@ class MapDragCreateButton extends StatelessWidget {
   });
 
   @override
+  ConsumerState<MapDragCreateButton> createState() =>
+      _MapDragCreateButtonState();
+}
+
+class _MapDragCreateButtonState extends ConsumerState<MapDragCreateButton> {
+  static const kArrowSize = MapDragCreateButton.kArrowSize;
+  static final _logger = MapDragCreateButton._logger;
+
+  /// Whether location tracking was on when the drag started. Tracking moves
+  /// (and auto-zooms) the map, so the spot under the arrow would shift while
+  /// dragging; it is paused for the drag and resumed after the drop.
+  bool _pausedTracking = false;
+
+  @override
   Widget build(BuildContext context) {
     final safePadding =
         MediaQuery.of(context).padding.copyWith(top: 0, bottom: 0);
     const commonPadding =
         EdgeInsets.symmetric(horizontal: 10.0, vertical: 20.0);
     return Align(
-      alignment: alignment,
+      alignment: widget.alignment,
       child: Padding(
         padding: safePadding + commonPadding,
         child: Draggable(
           onDragStarted: () {
-            if (onDragStart != null) onDragStart!();
+            _pausedTracking = ref.read(trackingProvider);
+            if (_pausedTracking) {
+              ref.read(trackingProvider.notifier).state = false;
+            }
+            if (widget.onDragStart != null) widget.onDragStart!();
           },
           onDragEnd: (details) {
-            final camera = map.mapController?.camera;
-            if (camera == null || onDragEnd == null) return;
-
-            const offset = Offset(-kArrowSize / 2, -2.0);
-            final pos = Offset(details.offset.dx, details.offset.dy);
-            // To adjust offset, we need to know the location of everything.
-            final globalMapOriginTr = map.mapKey?.currentContext!
-                .findRenderObject()!
-                .getTransformTo(null)
-                .getTranslation();
-            final globalMapOrigin = globalMapOriginTr == null
-                ? Offset(0.0, 0.0)
-                : Offset(globalMapOriginTr.x, globalMapOriginTr.y);
-            _logger.fine(
-                'global: $globalMapOrigin, drop offset: ${pos - offset}.');
-            final location = camera.offsetToCrs(pos - offset + globalMapOrigin);
-            if (camera.visibleBounds.contains(location)) onDragEnd!(location);
+            _handleDrop(details);
+            // Resume tracking after the drop location has been computed.
+            if (_pausedTracking) {
+              _pausedTracking = false;
+              ref.read(trackingProvider.notifier).state = true;
+            }
           },
           feedbackOffset: Offset(kArrowSize / 2, 70.0),
           dragAnchorStrategy: (draggable, context, position) =>
@@ -67,10 +76,31 @@ class MapDragCreateButton extends StatelessWidget {
             size: Size(kArrowSize, 100.0),
           ),
           childWhenDragging: Container(),
-          child: RoundButton(icon: icon, onPressed: onTap),
+          child: RoundButton(icon: widget.icon, onPressed: widget.onTap),
         ),
       ),
     );
+  }
+
+  void _handleDrop(DraggableDetails details) {
+    final map = widget.map;
+    final onDragEnd = widget.onDragEnd;
+    final camera = map.mapController?.camera;
+    if (camera == null || onDragEnd == null) return;
+
+    const offset = Offset(-kArrowSize / 2, -2.0);
+    final pos = Offset(details.offset.dx, details.offset.dy);
+    // To adjust offset, we need to know the location of everything.
+    final globalMapOriginTr = map.mapKey?.currentContext!
+        .findRenderObject()!
+        .getTransformTo(null)
+        .getTranslation();
+    final globalMapOrigin = globalMapOriginTr == null
+        ? Offset(0.0, 0.0)
+        : Offset(globalMapOriginTr.x, globalMapOriginTr.y);
+    _logger.fine('global: $globalMapOrigin, drop offset: ${pos - offset}.');
+    final location = camera.offsetToCrs(pos - offset + globalMapOrigin);
+    if (camera.visibleBounds.contains(location)) onDragEnd(location);
   }
 }
 
