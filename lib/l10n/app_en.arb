@@ -430,6 +430,16 @@
   "@settingsPurgeData": {
     "description": "Settings entry for purging obsolete OSM data."
   },
+  "settingsPurgeDataSubtitle": "Deletes data downloaded more than {days} days ago, except objects with changes not yet uploaded",
+  "@settingsPurgeDataSubtitle": {
+    "description": "Explanation under the settings entry for purging obsolete OSM data.",
+    "placeholders": {
+      "days": {
+        "type": "int",
+        "example": "14"
+      }
+    }
+  },
   "settingsPurgeAllData": "Purge all downloaded data",
   "@settingsPurgeAllData": {
     "description": "Settings entry for purging all cached OSM data."
@@ -472,6 +482,20 @@
   "settingsCachesClearManual": "Clear manually downloaded tiles",
   "@settingsCachesClearManual": {
     "description": "Settings data management entry for removing all tiles downloaded through the pre-downloadin panel."
+  },
+  "settingsCachesClearManualTitle": "Delete Downloaded Tiles?",
+  "@settingsCachesClearManualTitle": {
+    "description": "Confirmation dialog title for removing tiles downloaded through the pre-downloading panel."
+  },
+  "settingsCachesClearManualMessage": "Map tiles downloaded for offline use ({size}) will be deleted. Proceed?",
+  "@settingsCachesClearManualMessage": {
+    "description": "Confirmation dialog message for removing tiles downloaded through the pre-downloading panel.",
+    "placeholders": {
+      "size": {
+        "type": "String",
+        "example": "12.5 MB"
+      }
+    }
   },
   "settingsCachesSelectTiles": "Select tiles to download",
   "@settingsCachesSelectTiles": {

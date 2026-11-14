@@ -426,6 +426,7 @@
   "@settingsPurgeData": {
     "description": "Settings entry for purging obsolete OSM data."
   },
+  "settingsPurgeDataSubtitle": "Kustutab üle {days} päeva tagasi alla laaditud andmed, v.a objektid, mille muudatused on veel üles laadimata",
   "settingsBackground": "Taevafotode aluskaart",
   "@settingsBackground": {
     "description": "Settings entry for choosing background satellite imagery."
@@ -1376,6 +1377,8 @@
   "@settingsCachesClearManual": {
     "description": "Settings data management entry for removing all tiles downloaded through the pre-downloadin panel."
   },
+  "settingsCachesClearManualTitle": "Kustutada allalaaditud paanid?",
+  "settingsCachesClearManualMessage": "Võrguühenduseta kasutamiseks alla laaditud kaardipaanid ({size}) kustutatakse. Kas jätkata?",
   "settingsCachesSelectTiles": "Vali allalaaditavad paanid",
   "@settingsCachesSelectTiles": {
     "description": "A line shown below the map for pre-downloading tiles when there are no tiles selected."
