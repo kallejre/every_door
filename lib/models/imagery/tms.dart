@@ -1,4 +1,5 @@
 import 'package:encrypt/encrypt.dart';
+import 'package:every_door/constants.dart';
 import 'package:every_door/helpers/tile_caches.dart';
 import 'package:every_door/models/imagery/tiles.dart';
 import 'package:every_door/providers/cur_imagery.dart';
@@ -36,6 +37,12 @@ class TmsImagery extends TileImagery {
           },
           headers: headers,
           httpClient: IOClient(),
+          // Refresh old base map tiles when online. Offline, or if the
+          // server fails, the old tile is still shown. Imagery layers
+          // (orthophotos) never expire.
+          cachedValidDuration: cachingStore == kTileCacheBase
+              ? kBaseTileMaxAge
+              : Duration.zero,
         );
 
   TmsImagery.from(

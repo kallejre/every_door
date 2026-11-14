@@ -52,6 +52,7 @@ const kMinBulkDownloadZoom = 12; // Min zoom for bulk downloading tiles
 const kMaxBulkDownloadZoom = 18; // Max zoom for bulk downloading tiles
 const kRasterCacheSizeMB = 1024; // Passed to raster caches
 const kVectorCacheSizeMB = 256; // Passed to vector caches
+const kBaseTileMaxAge = Duration(days: 30); // Base map tiles older than this are re-fetched when online
 
 const kOsmEndpoint = 'api.openstreetmap.org';
 const kOsmAuth2Endpoint = 'www.openstreetmap.org';
