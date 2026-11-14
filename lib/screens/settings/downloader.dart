@@ -1,7 +1,9 @@
 import 'package:every_door/constants.dart';
 import 'package:every_door/generated/l10n/app_localizations.dart';
+import 'package:every_door/helpers/geometry/area_coverage.dart';
 import 'package:every_door/helpers/geometry/tile_range.dart';
 import 'package:every_door/helpers/tile_calculator.dart';
+import 'package:every_door/models/osm_area.dart';
 import 'package:every_door/providers/area.dart';
 import 'package:every_door/providers/cur_imagery.dart';
 import 'package:every_door/providers/downloaders.dart';
@@ -13,7 +15,6 @@ import 'package:every_door/widgets/tile_bounds_grid.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart' show LatLng;
 
 class TileCacheDownloader extends ConsumerStatefulWidget {
   const TileCacheDownloader({super.key});
@@ -27,8 +28,17 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
   static const kBaseZoom = 15; // 85 tiles to zoom 18, ~1 km on side
   static const kMaxTilesToDownload = 20;
 
+  /// Downloaded data areas are drawn in solid colours under this one shared
+  /// opacity, so overlapping areas don't get darker.
+  static const kDataOpacity = 0.4;
+
   final Set<Tile> _selected = {};
-  final List<LatLngBounds> _areas = [];
+
+  /// Downloaded OSM data areas, oldest first.
+  List<OsmDownloadedArea> _areas = [];
+
+  /// How downloaded OSM data covers each square of the grid.
+  Map<Tile, TileCoverage> _coverage = {};
 
   @override
   void initState() {
@@ -37,33 +47,30 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
   }
 
   Future<void> _updateDownloadedAreas() async {
-    final areas = await ref.read(downloadedAreaProvider).getAllAreas();
-    _areas.clear();
-    _areas.addAll(areas);
-    setState(() {});
+    final areas = await ref.read(downloadedAreaProvider).getAllAreaRecords();
+    if (!mounted) return;
+    areas.sort((a, b) => a.downloaded.compareTo(b.downloaded));
+    setState(() {
+      _areas = areas;
+      _coverage = tileCoverage(areas, kBaseZoom);
+    });
   }
 
-  bool _needDownloadData() {
-    if (_selected.isEmpty) return false;
-    if (_areas.isEmpty) return true;
+  /// Green for fresh data, then amber when it gets obsolete, and red when
+  /// "Purge obsolete data" would delete it.
+  static Color _dataColor(Duration age) => age <= kObsoleteData
+      ? Colors.green.shade700
+      : (age <= kSuperObsoleteData ? Colors.amber : Colors.red);
 
-    //  This list contains parts that are not covered by any area.
-    Iterable<LatLngBounds> tileBounds =
-        _selected.map((tile) => tile.tileBounds());
-
-    for (final area in _areas) {
-      // Now we cut each part with the area that we've got.
-      final newBounds = <LatLngBounds>[];
-      for (final part in tileBounds) newBounds.addAll(part.difference(area));
-      tileBounds = newBounds;
-
-      // If areas cover all the parts, the resulting list would be empty.
-      if (tileBounds.isEmpty) return false;
-    }
-
-    // Since some parts were left, we need to download data.
-    return true;
+  bool _hasFreshData(Tile tile) {
+    final coverage = _coverage[tile];
+    return coverage != null &&
+        coverage.full &&
+        DateTime.now().difference(coverage.downloaded) <= kObsoleteData;
   }
+
+  bool _needDownloadData() =>
+      _selected.any((tile) => !_hasFreshData(tile));
 
   Iterable<DiscreteTileRange> _groupTiles() {
     // Very simple greedy algorithm.
@@ -209,6 +216,21 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
     return Scaffold(
       appBar: AppBar(
         title: Text(loc.settingsCacheTiles),
+        actions: [
+          if (_selected.isNotEmpty) ...[
+            // Tapping more squares does nothing past the limit, so show it.
+            Center(child: Text('${_selected.length}/$kMaxTilesToDownload')),
+            IconButton(
+              icon: Icon(Icons.deselect),
+              tooltip: loc.settingsCachesDeselectAll,
+              onPressed: () {
+                setState(() {
+                  _selected.clear();
+                });
+              },
+            ),
+          ],
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -232,16 +254,24 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
                   base.buildLayer(reset: true),
                   ...ref.watch(overlayImageryProvider),
                   AttributionWidget(imagery),
-                  PolygonLayer(
-                    polygons: [
-                      for (final area in _areas)
-                        Polygon(
-                          points: area.toPoints(),
-                          color: Colors.green.withValues(alpha: 0.1),
-                          borderColor: Colors.green.shade800,
-                          borderStrokeWidth: 3.0,
-                        ),
-                    ],
+                  Opacity(
+                    opacity: kDataOpacity,
+                    child: PolygonLayer(
+                      polygons: [
+                        // Oldest first, so newer areas are drawn on top.
+                        for (final area in _areas)
+                          Polygon(
+                            points: [
+                              area.bounds.northWest,
+                              area.bounds.northEast,
+                              area.bounds.southEast,
+                              area.bounds.southWest,
+                            ],
+                            color: _dataColor(
+                                DateTime.now().difference(area.downloaded)),
+                          ),
+                      ],
+                    ),
                   ),
                   TileBoundsGrid(
                     tileZoom: kBaseZoom,
@@ -264,6 +294,7 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
                 ],
               ),
             ),
+            buildLegend(context),
             Row(
               mainAxisSize: MainAxisSize.max,
               mainAxisAlignment: MainAxisAlignment.center,
@@ -282,48 +313,42 @@ class _TileCacheDownloaderState extends ConsumerState<TileCacheDownloader> {
       ),
     );
   }
-}
 
-extension BoundPoints on LatLngBounds {
-  List<LatLng> toPoints() {
-    return [northWest, northEast, southEast, southWest];
-  }
-
-  /// Returns zero to four parts made by cutting out [other] from
-  /// this polygon. Useful to check for coverage: each area cuts some,
-  /// and we need to check whether anything is left.
-  List<LatLngBounds> difference(LatLngBounds other) {
-    if (other.containsBounds(this)) return [];
-    if (!isOverlapping(other)) return [this];
-    final parts = <LatLngBounds>[];
-
-    // Tiles run left to right.
-    double newWest = west;
-    if (other.west > west && other.west < east) {
-      parts.add(LatLngBounds(southWest, LatLng(north, other.west)));
-      newWest = other.west;
-    }
-    double newEast = east;
-    if (other.east < east && other.east > west) {
-      parts.add(LatLngBounds(LatLng(north, other.east), southEast));
-      newEast = other.east;
-    }
-
-    // Tiles run top to bottom.
-    if (other.north > north && other.north < south) {
-      parts.add(LatLngBounds(
-        LatLng(north, newWest),
-        LatLng(other.north, newEast),
-      ));
-    }
-    if (other.south < south && other.south > north) {
-      parts.add(LatLngBounds(
-        LatLng(other.south, newWest),
-        LatLng(south, newEast),
-      ));
-    }
-
-    // If parts is empty, this means there's a miss.
-    return parts.isEmpty ? [this] : parts;
+  /// Explains the area colours from [_dataColor].
+  Widget buildLegend(BuildContext context) {
+    final loc = AppLocalizations.of(context)!;
+    Widget item(Color color, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 16.0,
+              height: 16.0,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: kDataOpacity),
+                border: Border.all(color: Colors.black26),
+              ),
+            ),
+            SizedBox(width: 4.0),
+            Text(label),
+          ],
+        );
+    final obsoleteDays = kObsoleteData.inDays;
+    final purgeDays = kSuperObsoleteData.inDays;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+      child: Wrap(
+        spacing: 12.0,
+        runSpacing: 4.0,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(loc.settingsCachesDataAge),
+          item(_dataColor(Duration.zero),
+              loc.settingsCachesDataDays(0, obsoleteDays)),
+          item(_dataColor(kSuperObsoleteData),
+              loc.settingsCachesDataDays(obsoleteDays, purgeDays)),
+          item(_dataColor(kSuperObsoleteData * 2), loc.settingsCachesDataOlder),
+        ],
+      ),
+    );
   }
 }

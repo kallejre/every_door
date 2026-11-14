@@ -1401,5 +1401,9 @@
         "example": "50"
       }
     }
-  }
+  },
+  "settingsCachesDeselectAll": "Tühista valik",
+  "settingsCachesDataAge": "Andmete vanus:",
+  "settingsCachesDataDays": "{from}–{to} päeva",
+  "settingsCachesDataOlder": "vanemad"
 }

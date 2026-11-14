@@ -499,6 +499,32 @@
       }
     }
   },
+  "settingsCachesDeselectAll": "Deselect all",
+  "@settingsCachesDeselectAll": {
+    "description": "Tooltip for the button that clears the selected squares on the tile download screen."
+  },
+  "settingsCachesDataAge": "Data age:",
+  "@settingsCachesDataAge": {
+    "description": "Legend on the tile download screen: downloaded OSM data areas are coloured by their age."
+  },
+  "settingsCachesDataDays": "{from}–{to} days",
+  "@settingsCachesDataDays": {
+    "description": "Legend item on the tile download screen: data downloaded this many days ago.",
+    "placeholders": {
+      "from": {
+        "type": "int",
+        "example": "3"
+      },
+      "to": {
+        "type": "int",
+        "example": "14"
+      }
+    }
+  },
+  "settingsCachesDataOlder": "older",
+  "@settingsCachesDataOlder": {
+    "description": "Legend item on the tile download screen: data older than the previous item."
+  },
   "settingsUploads": "Pending uploads",
   "@settingsUploads": {
     "description": "Settings entry for browsing changes to upload."

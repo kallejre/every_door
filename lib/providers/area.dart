@@ -56,6 +56,13 @@ class AreaProvider extends ChangeNotifier {
     return areas.map((area) => area.bounds).toList();
   }
 
+  /// All downloaded areas with their download times, obsolete ones too.
+  Future<List<OsmDownloadedArea>> getAllAreaRecords() async {
+    final database = await _ref.read(databaseProvider).database;
+    final rows = await database.query(OsmDownloadedArea.kTableName);
+    return rows.map((r) => OsmDownloadedArea.fromJson(r)).toList();
+  }
+
   Future<AreaStatus> getAreaStatus(LatLngBounds bounds) async {
     final database = await _ref.read(databaseProvider).database;
     final areas = await database.query(
