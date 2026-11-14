@@ -97,10 +97,21 @@ class _CustomMapState extends ConsumerState<CustomMap> {
   int _rotation = 0;
   StreamSubscription<MapEvent>? mapSub;
 
-  /// True while the user drags or pinches the map. Switching between
-  /// navigation and editing mode replaces this map with another one,
-  /// which would cancel the gesture, so the switch waits until it ends.
-  bool _gestureActive = false;
+  /// Fingers currently touching the map. Switching between navigation and
+  /// editing mode replaces this map with another one, which would cancel
+  /// a gesture in progress, so the switch waits until all fingers are lifted.
+  /// Pointers rather than gesture events, because double-tap-and-drag zoom
+  /// has no start/end events.
+  final Set<int> _pointers = {};
+
+  void _onPointerEnd(int pointer) {
+    _pointers.remove(pointer);
+    if (widget.updateState &&
+        _pointers.isEmpty &&
+        _controller.camera.zoom.isFinite) {
+      _updateNavigationMode(_controller.camera.zoom);
+    }
+  }
 
   @override
   void initState() {
@@ -132,18 +143,16 @@ class _CustomMapState extends ConsumerState<CustomMap> {
     bool fromController = event.source == MapEventSource.mapController ||
         event.source == MapEventSource.nonRotatedSizeChange;
 
-    if (event is MapEventMoveStart) {
-      if (!fromController) _gestureActive = true;
-    } else if (event is MapEventWithMove) {
+    if (event is MapEventWithMove) {
       if (!fromController) {
         ref.read(trackingProvider.notifier).state = false;
       }
       // Size changes come during layout and never change the zoom.
       if (event.source != MapEventSource.nonRotatedSizeChange) {
         ref.read(zoomProvider.notifier).state = event.camera.zoom;
-        // Zoom buttons, double-tap zoom and other moves without a drag or
-        // pinch switch at once (zoom buttons move the map via the controller).
-        if (!_gestureActive) _updateNavigationMode(event.camera.zoom);
+        // Moves without a finger on the map (e.g. double-tap zoom animation)
+        // switch at once; otherwise it happens when the fingers are lifted.
+        if (_pointers.isEmpty) _updateNavigationMode(event.camera.zoom);
       }
       if (event.camera.center != _center) {
         setState(() {
@@ -157,9 +166,8 @@ class _CustomMapState extends ConsumerState<CustomMap> {
       }
     } else if (event is MapEventMoveEnd) {
       if (!fromController) {
-        _gestureActive = false;
         ref.read(effectiveLocationProvider.notifier).set(event.camera.center);
-        _updateNavigationMode(event.camera.zoom);
+        if (_pointers.isEmpty) _updateNavigationMode(event.camera.zoom);
       }
     } else if (event is MapEventRotateEnd) {
       if (event.source != MapEventSource.mapController) {
@@ -181,7 +189,7 @@ class _CustomMapState extends ConsumerState<CustomMap> {
   void _updateNavigationMode(double zoom) {
     if (!widget.switchToNavigate) return;
     final bool isNavigating = ref.read(navigationModeProvider);
-    if (isNavigating && zoom > kEditMinZoom) {
+    if (isNavigating && zoom >= kEditMinZoom) {
       ref.read(navigationModeProvider.notifier).state = false;
     } else if (!isNavigating && zoom < kEditMinZoom) {
       ref.read(navigationModeProvider.notifier).state = true;
@@ -233,6 +241,9 @@ class _CustomMapState extends ConsumerState<CustomMap> {
     if (zoom < kMapZoom - 1)
       zoom = min(curZoom, kMapZoom - 1);
     else if (zoom > maxZoomHere) zoom = max(curZoom, maxZoomHere);
+    // Callers (POI and micromapping modes) call zoomToFit only while tracking.
+    if (zoom > curZoom && !kZoomInToFitWhenTracking) return;
+    if (zoom < curZoom && !kZoomOutToFitWhenTracking) return;
     if ((zoom - curZoom).abs() >= kZoomThreshold) {
       _controller.move(_controller.camera.center, zoom);
       ref.read(zoomProvider.notifier).state = zoom;
@@ -267,9 +278,13 @@ class _CustomMapState extends ConsumerState<CustomMap> {
       });
 
       // When turning the tracking on, move the map immediately.
+      // With kZoomToEditWhenTracking, also zoom in to the editing level.
       ref.listen(trackingProvider, (_, bool newState) {
         if (trackLocation != null && newState) {
-          _controller.move(trackLocation, _controller.camera.zoom);
+          final zoom = widget.switchToNavigate && kZoomToEditWhenTracking
+              ? max(_controller.camera.zoom, kEditMinZoom)
+              : _controller.camera.zoom;
+          _controller.move(trackLocation, zoom);
           ref.read(effectiveLocationProvider.notifier).set(trackLocation);
         }
       });
@@ -315,6 +330,9 @@ class _CustomMapState extends ConsumerState<CustomMap> {
         ),
         onMapReady: onMapReady,
         onTap: widget.onTap == null ? null : onMapTap,
+        onPointerDown: (event, _) => _pointers.add(event.pointer),
+        onPointerUp: (event, _) => _onPointerEnd(event.pointer),
+        onPointerCancel: (event, _) => _onPointerEnd(event.pointer),
       ),
       children: [
         imagery.buildLayer(reset: true),

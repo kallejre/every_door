@@ -17,7 +17,6 @@ class _NavigationPaneState extends State<NavigationPane> {
         CustomMap(
           allowRotation: false,
           onlyOSM: true,
-          track: false,
           drawPinMarker: false,
           updateState: true,
         ),

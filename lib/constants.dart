@@ -29,6 +29,11 @@ const kEditMaxZoom = 22.0; // Same for all modes
 const kNavigateMinZoom = 4.0; // For the navigation, far zoom-out mode
 const kDrawingMaxPoints = 100; // for hand-drawings
 const kDrawingMaxLength = 5000; // meters, for hand-drawings
+// changing zoom when switching to follow user position.
+// v8.0 behaviour is equivalent to true-false-false
+const kZoomInToFitWhenTracking = false; // Zoom in to fit nearby POIs on location updates while tracking
+const kZoomOutToFitWhenTracking = false; // Zoom out to fit nearby POIs on location updates while tracking
+const kZoomToEditWhenTracking = true; // Zoom in to kEditMinZoom when tracking starts in navigation mode
 // editor
 const kDuplicateSearchRadius = 150; // meters
 const kOldAmenityDaysEditor = 3; // check_date expiration rate for the editor
