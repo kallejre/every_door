@@ -7,16 +7,26 @@ final logStore = LogStore();
 
 class LogStore {
   final List<String> lines = [];
+  final List<DateTime> _times = []; // when each of [lines] was added
 
   bool get isEmpty => lines.isEmpty;
   bool get isNotEmpty => lines.isNotEmpty;
 
   void clear() {
     lines.clear();
+    _times.clear();
   }
 
   List<String> last(int count) =>
       lines.length <= count ? lines : lines.sublist(lines.length - count);
+
+  /// Lines added within the last [age], oldest first.
+  List<String> newerThan(Duration age) {
+    final since = DateTime.now().subtract(age);
+    int start = _times.length;
+    while (start > 0 && _times[start - 1].isAfter(since)) start--;
+    return lines.sublist(start);
+  }
 
   String _formatTime(DateTime time) {
     final hour = time.hour.toString().padLeft(2, '0');
@@ -27,7 +37,9 @@ class LogStore {
 
   void _addLine(String? str, [DateTime? time]) {
     if (str == null) return;
-    lines.add('[${_formatTime(time ?? DateTime.now())}] $str');
+    time ??= DateTime.now();
+    lines.add('[${_formatTime(time)}] $str');
+    _times.add(time);
   }
 
   void addFromLogger(LogRecord record) {
