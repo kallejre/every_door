@@ -65,8 +65,12 @@ class _PoiEditorPageState extends ConsumerState<PoiEditorPage> {
   @override
   void initState() {
     super.initState();
-    _openTimer = PerfTimer('Editor',
-        'opened (${widget.amenity != null ? 'existing ${widget.amenity!.id}' : 'new, preset ${widget.preset?.id}'})');
+    // databaseId, not id: id throws for points added but not uploaded yet.
+    // Those have a UUID there (the key in the changes table) until upload.
+    final opened = widget.amenity;
+    _openTimer = PerfTimer(
+        'Editor',
+        'opened (${opened == null ? 'new, preset ${widget.preset?.id}' : '${opened.isNew ? 'not uploaded' : 'existing'} ${opened.databaseId}'})');
     if (widget.amenity != null) {
       amenity = widget.amenity!.copy();
     } else {

@@ -81,10 +81,10 @@ class _TypeChooserPageState extends ConsumerState<TypeChooserPage> {
     for (final element in data) {
       final preset = await presetProv.getPresetForTags(element.getFullTags(),
           locale: locale);
-      timer.lap('getPresetForTags ${element.id} -> ${preset.id}');
       if (preset != Preset.defaultPreset && preset.type != PresetType.fixme)
         presetsCount.add(preset);
     }
+    timer.lap('getPresetForTags for ${data.length} elements');
 
     // Sort and return most common.
     return presetsCount.mostOccurentItems(count: count).toList();
