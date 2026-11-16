@@ -206,9 +206,9 @@ class PresetProvider {
     if (terms.isEmpty) return [];
 
     // Query the plugin presets.
-    final fromPlugins = _ref
-        .read(pluginPresetsProvider)
-        .getAutocomplete(terms: terms, nsi: false, locale: locale);
+    final pluginProvider = _ref.read(pluginPresetsProvider);
+    final fromPlugins =
+        pluginProvider.getAutocomplete(terms: terms, nsi: false, locale: locale);
 
     // Do the big database query.
     if (!ready) await _waitUntilReady();
@@ -252,10 +252,15 @@ class PresetProvider {
           (term) => foundTerms.any((element) => element.startsWith(term))))
         continue;
 
-      if (seenPresets.contains(row['name'])) continue;
-      seenPresets.add(row['name'] as String);
+      final name = row['name'] as String;
+      if (seenPresets.contains(name)) continue;
+      seenPresets.add(name);
 
-      final preset = Preset.fromJson(row);
+      // A plugin can redefine a standard preset (e.g. with its own fields).
+      // Its search terms may not match, so take its version here too, like
+      // getPresetsById and getPresetForTags do.
+      final preset = pluginProvider.getById([name], locale)[name] ??
+          Preset.fromJson(row);
       if (location != null && preset.locationSet != null) {
         // Test that the location is correct.
         if (!locationMatcher(
