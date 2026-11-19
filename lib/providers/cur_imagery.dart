@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:every_door/helpers/tile_caches.dart';
+import 'package:every_door/helpers/tile_retry.dart';
 import 'package:every_door/models/imagery.dart';
 import 'package:every_door/models/imagery/tms.dart';
 import 'package:every_door/models/imagery/vector_assets.dart';
@@ -24,6 +25,25 @@ final selectedImageryProvider = Provider<Imagery>((ref) {
 });
 
 final StreamController<void> tileResetController = StreamController.broadcast();
+
+/// Fires when the imagery changes and when failed tiles should be retried.
+final Stream<void> tileResetOrRetryStream =
+    _mergeBroadcast([tileResetController.stream, tileRetry.stream]);
+
+Stream<void> _mergeBroadcast(List<Stream<void>> streams) {
+  late final StreamController<void> merged;
+  final subs = <StreamSubscription<void>>[];
+  merged = StreamController<void>.broadcast(
+    onListen: () => subs.addAll(streams.map((s) => s.listen(merged.add))),
+    onCancel: () {
+      for (final sub in subs) {
+        sub.cancel();
+      }
+      subs.clear();
+    },
+  );
+  return merged.stream;
+}
 
 class BaseImageryNotifier extends Notifier<Imagery> {
   static final _kOSMImagery = TmsImagery(

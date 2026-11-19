@@ -60,6 +60,8 @@ const kMaxBulkDownloadZoom = 18; // Max zoom for bulk downloading tiles
 const kRasterCacheSizeMB = 1024; // Passed to raster caches
 const kVectorCacheSizeMB = 256; // Passed to vector caches
 const kBaseTileMaxAge = Duration(days: 30); // Base map tiles older than this are re-fetched when online
+const kTileRetryInterval = Duration(seconds: 5); // Min time between retries of tiles that failed offline
+const kTileRetryUserAgent = 'flutter_map (info.zverev.ilya.every_door)'; // For the tile retry probe
 
 const kOsmEndpoint = 'api.openstreetmap.org';
 const kOsmAuth2Endpoint = 'www.openstreetmap.org';

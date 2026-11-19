@@ -1,6 +1,7 @@
 import 'package:encrypt/encrypt.dart';
 import 'package:every_door/constants.dart';
 import 'package:every_door/helpers/tile_caches.dart';
+import 'package:every_door/helpers/tile_retry.dart';
 import 'package:every_door/models/imagery/tiles.dart';
 import 'package:every_door/providers/cur_imagery.dart';
 import 'package:flutter/widgets.dart' hide Key;
@@ -152,7 +153,8 @@ class TmsImagery extends TileImagery {
       tms: tms,
       subdomains: subdomains,
       userAgentPackageName: kUserAgentPackageName,
-      reset: reset ? tileResetController.stream : null,
+      reset: reset ? tileResetOrRetryStream : tileRetry.stream,
+      errorTileCallback: tileRetry.onTileError,
     );
     return isOpaque ? layer : Opacity(opacity: opacity, child: layer);
   }

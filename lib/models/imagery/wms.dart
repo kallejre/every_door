@@ -1,4 +1,5 @@
 import 'package:every_door/helpers/tile_caches.dart';
+import 'package:every_door/helpers/tile_retry.dart';
 import 'package:every_door/models/imagery/tiles.dart';
 import 'package:every_door/providers/cur_imagery.dart';
 import 'package:flutter/widgets.dart';
@@ -108,7 +109,8 @@ class WmsImagery extends TileImagery {
       tileDimension: tileSize,
       tms: false,
       userAgentPackageName: kUserAgentPackageName,
-      reset: reset ? tileResetController.stream : null,
+      reset: reset ? tileResetOrRetryStream : tileRetry.stream,
+      errorTileCallback: tileRetry.onTileError,
     );
     return isOpaque ? layer : Opacity(opacity: opacity, child: layer);
   }
